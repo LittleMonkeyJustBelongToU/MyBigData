@@ -1,0 +1,46 @@
+
+create table address1(
+name string,
+street string,
+city string,
+state string,
+zip int)
+stored as orc tblproperties("orc.compress"="snappy");
+
+create table address1(
+name string,
+street string,
+city string,
+state string,
+zip int)
+row format delimited fields terminated by '\t'
+tblproperties("orc.compress"="snappy");
+
+create table youtobe1(
+vid string,
+uploader string,
+age int,
+category string,
+length double,
+views int,
+rate double,
+ratings double,
+comments int,
+r_ids string)
+row format delimited fields terminated by '\t';
+
+create table youtobe2(
+vid string,
+uploader string,
+age int,
+category string,
+length double,
+views int,
+rate double,
+ratings double,
+comments int,
+r_ids string)
+row format delimited fields terminated by '\t'
+stored as orc;
+
+

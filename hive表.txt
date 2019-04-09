@@ -1,0 +1,245 @@
+=======================================================================================================================================================
+								静态分区表
+=======================================================================================================================================================
+
+一级分区的静态分区表
+create table my_partitioner1(
+id bigint,
+name string,
+time date,
+love varchar(50))
+partitioned by(sex string)
+row format delimited fields terminated by '\t'
+
+二级分区的静态分区表
+create table my_partitioner3(
+id bigint,
+name string,
+time date,
+interest array<string>)
+partitioned by(sex string,country string)
+row format delimited fields terminated by '\t'
+collection items terminated by ','
+
+分区数据
+
+1	wd	2018-10-25	睡觉
+2	zam	2018-10-26	吃
+3	dong	2018-10-25	玩游戏
+
+1	zam	2018-10-25	睡觉,吃，玩游戏
+2	zam	2018-10-26	吃，点豆豆,上天
+3	wd	2018-10-25	玩游戏，睡觉
+
+1.数据加载到表
+由本地文件插入
+load data local inpath '/test/my_partitioner1.txt into table my_partitioner1 partition(sex='woman'); 
+load data [local] inpath '/root/my_partitioner3.txt into table my_partitioner4 partition(sex='woman',country='usa'); 
+由子查询导入,需要指定分区
+insert into my_partitioner5 partition(sex='man',country='usa') select id,name,time,interest from my_partitioner4 where sex='man' andcountry='usa';
+文件直接导入hdfs制定区域
+再刷新元数据信息
+msck repair table order_created_partition;
+
+2.查询时间大于10-25  的interest
+select interest from my_partitioner4 where time>'2018-10-25';
+
+3.查询某个分区的数据
+select * from my_partitioner4 where sex='woman';
+select * from my_partitioner4 where sex='woman' and country='china';
+
+4.添加分区，只能在当前级数下进行分区，数目必须和其一致
+alter table my_partitioner4 add partition (sex='woman',country='china');
+
+5.删除分区
+alter table my_partitioner4 drop partition(sex='woman',country='china');
+
+6.显示已有分区
+show partitions my_partitioner4;
+
+7.删除表数据(删除所有数据,保留表结构)
+truncate table d_patition1;
+
+=======================================================================================================================================================
+									动态分区表
+=======================================================================================================================================================
+
+设置为非严格模式
+set hive.exec.dynamic.partition.mode=nonstrict;
+启动动态分区
+set hive.exec.dynamic.partition=true;
+建立一个辅助表存储数据
+create table d_fz(
+id bigint,
+name string,
+interest array<string>,
+country string)
+row format delimited fields terminated by '\t'
+collection items terminated by ',';
+
+hive.exec.dynamic.partition（缺省false）： 设置为true允许使用dynamic partition
+hive.exec.dynamic.partition.mode（缺省strick）：设置dynamic partition模式（nostrict允许所有partition列都为dynamic partition，strict不允许）
+hive.exec.max.dynamic.partitions.pernode （缺省100）：每一个mapreduce job允许创建的分区的最大数量，如果超过了这个数量就会报错
+hive.exec.max.dynamic.partitions （缺省1000）：一个dml语句允许创建的所有分区的最大数量
+hive.exec.max.created.files （缺省100000）：所有的mapreduce job允许创建的文件的最大数量
+
+一级分区的动态分区表
+create table d_patition1(
+id bigint,
+name string,
+interest array<string>)
+partitioned by (country varchar(50))
+row format delimited fields terminated by '\t'
+collection items terminated by ',';
+
+插入数据(需要写overwrite)，指定分区字段,需要设置为非严格模式(set hive.exec.dynamic.partition.mode=nostrict)
+insert overwrite table d_patition1 partition(country) select * from d_fz;
+查询数据
+
+
+二级分区的动态分区表
+create table d_partition3(
+id bigint,
+name string,
+interest array<string>)
+partitioned by (country varchar(50),age int)
+row format delimited fields terminated by '\t'
+collection items terminated by ',';
+
+建立一个辅助表存储数据(和动态分区表列相同)
+create table d_fz2(
+id bigint,
+name string,
+interest array<string>,
+country string,
+age int)
+row format delimited fields terminated by '\t'
+collection items terminated by ',';
+
+插入数据
+依赖于以及静态的插入，需要先制定一级静态分区，并查询除了一级静态的其他列
+insert overwrite table d_partition3 partition(country,age) select id,name,interest,country,age from d_fz2;
+多动态插入(两个分区值都可不设)
+insert overwrite table d_partition3 partition(country,age)
+select * from d_fz2;
+
+查询数据（按分区查)
+
+
+===================================================================================================================
+使用动态分区表必须配置的参数 ：                                                                                       
+    set hive.exec.dynamic.partition =true（默认false）,表示开启动态分区功能                                           
+    set hive.exec.dynamic.partition.mode = nonstrict(默认strict),表示允许所有分区都是动态的，否则必须有静态分区字段
+使用动态分区相关的调优参数：
+    set  hive.exec.max.dynamic.partitions.pernode=100 （默认100，一般可以设置大一点，比如1000）
+       表示每个maper或reducer可以允许创建的最大动态分区个数，默认是100，超出则会报错。
+   set hive.exec.max.dynamic.partitions =1000(默认值) 
+       表示一个动态分区语句可以创建的最大动态分区个数，超出报错
+   set hive.exec.max.created.files =10000(默认) 
+       全局可以创建的最大文件个数，超出报错。
+===================================================================================================================
+
+
+
+
+
+=======================================================================================================================================================
+									内部表,外部表
+=======================================================================================================================================================
+
+
+
+=======================================================================================================================================================
+									分桶表
+=======================================================================================================================================================
+辅助表
+create table b_fz(
+id bigint,
+name string,
+love array<string>)
+row format delimited fields terminated by '\t';
+分通表（clusted by 指定按那个列分桶，sorted by指定排序方式)
+create table b_tb3(
+id bigint,
+name string,
+love array<string>)
+clustered by(id) sorted by(id desc) into 3 buckets
+row format delimited fields terminated by '\t'
+collection items terminated by ',';
+
+create table b_tb4(
+id bigint,
+name string,
+love array<string>)
+clustered by(id)into 3 buckets
+row format delimited fields terminated by '\t'
+collection items terminated by ',';
+
+
+数据
+1	wd	吃饭，睡觉，打游戏
+2	zam	玩，吃，睡
+3	dong	上天，入地，降妖伏魔
+4	wdd	打妖怪，吃人
+5	man	吃到天昏地暗
+6	dgg	无所不能
+
+插入数据。插入数据是也要指定分桶字段,按key对桶数量取摸，此时reduce数量和桶数量设为一致(set mapreduce.job.reduces=3)(cluster by等同于distribute by+sort by)
+cluster by默认为升序
+insert into table b_tb4
+select id,name,love from default.b_tb1 cluster by(id);
+
+查询数据
+
+=================================================
+把表或分区划分成bucket有两个理由
+	hive.enforce.bucketing=true
+    1，更快，桶为表加上额外结构，链接相同列划分了桶的表，可以使用map-side join更加高效。
+    2，取样sampling更高效。没有分区的话需要扫描整个数据集。
+     
+create table bucketed_user (id int,name string)clustered by (id) sorted by (id asc) into 4 buckets;
+    重点1：CLUSTERED BY来指定划分桶所用列和划分桶的个数。HIVE对key的hash值除bucket个数取余数，保证数据均匀随机分布在所有bucket里。
+    重点2: SORTED BY对桶中的一个或多个列另外排序
+     
+总结：其实桶的概念就是MapReduce的分区的概念，两者完全相同。物理上每个桶就是目录里的一个文件，一个作业产生的桶（输出文件）数量和reduce任务个数相同。
+    而分区表的概念，则是新的概念。分区代表了数据的仓库，也就是文件夹目录。每个文件夹下面可以放不同的数据文件。通过文件夹可以查询里面存放的文件。但文件夹本身和数据的内容毫无关系。
+    桶则是按照数据内容的某个值进行分桶，把一个大文件散列称为一个个小文件。
+     
+    这些小文件可以单独排序。如果另外一个表也按照同样的规则分成了一个个小文件。两个表join的时候，就不必要扫描整个表，只需要匹配相同分桶的数据即可。效率当然大大提升。
+    同样，对数据抽样的时候，也不需要扫描整个文件。只需要对每个分区按照相同规则抽取一部分数据即可。
+====================================================
+
+
+
+=======================================================================================================================================================
+									复杂数据结构的建表语句
+=======================================================================================================================================================
+create table complex(id bigint,name string,
+time date,
+interest array<string>,
+country map<int,string>,
+orther struct<edu:string,high:int,weight:double>)
+row format delimited fields terminated by '\t'
+collection items terminated by ','
+map keys terminated by ':';
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
