@@ -1,0 +1,104 @@
+hive是构建在hadoop上的数据仓库平台，
+一个SQL引擎，
+可将结构化数据映射为一张数据库表，
+数据分为两部分：
+1.元数据
+	元数据存储在本地的mysql数据库中，存储数据库，数据表,分区，列，数据存储目录等信息
+2.真实数据
+	底层数据存储在hdfs上，实际数据的存储
+将HQL通过四大器转为指定的查询计划，
+在hadoop上执行mapreduce,
+本质是基于mapreduce的计算框架
+底层的驱动driver
+	四大器：
+	完成HQL的词法分析，语法分析，编译，优化，查询计划的生成
+	解释器	首先讲HQL语句转为抽象语法树
+	编译器	再讲语法数编译为逻辑执行计划
+	优化器	讲逻辑执行计划优化，最终生成查询计划
+	执行器 调用底层的运行计算框架执行查询计划
+hive特点：
+1.友好的的接口
+	命令行，WUI,jdbc odbc客户端
+2.海量数据的存储，不同类型文件的存储，基于HDFS
+3.适合做海量离线的数据分析
+4.充分利用集群的CPU计算资源、存储资源，实现并行计算
+5.减少开发成本
+6.良好的扩展性，用户函数的使用
+
+Hive优化
+
+hive的优化是mapReduce的优化，hive的执行引擎是mapReduce,所以优化mapReduce是必不可少的
+
+全局优化：
+
+1.map阶段的优化：设置合理的map 数量
+
+num_map_tasks = max[${mapred.min.split.size},min(${dfs.block.size}, ${mapred.max.split.size})]
+mapred.min.split.size指的是数据的最小分割单元大小 默认1
+mapred.max.split.size指的是数据的最大分割单元大小 默认25600000
+dfs.block.size指的是HDFS设置的数据块大小 默认大小128M
+
+2.reduce阶段的优化：设置合理的reduce 数量
+num_reduce_tasks = min(${hive.exec.reducers.max},${input.size} / ${ hive.exec.reducers.bytes.per.reducer})
+
+3.Map与Reduce之间的优化
+
+mapred.reduce.slowstart.completed.maps 0.05
+tasktracker.http.threads 40
+io.sort.mb   map端buffer的数据缓冲区 1146
+io.sort.factor 溢出的数据合并因子 100
+
+4.文件格式的优化
+hive.default.fileformat = TextFile 文件格式
+hive.exec.compress.output=false  压缩
+mapred.output.compression.type map输出的压缩  对于sequence file，压缩方式有record和block两种可选择，block压缩比更高
+
+
+5.hive执行模式的选择
+
+执行模式： 不同的数据量 可以选择不同的模式去执行
+hive.exec.mode.local.auto=false 设置为true会执行本地模式,默认执行分布式
+hive.exec.mode.local.auto.input.files.max=4 处理的文件数量
+hive.exec.mode.local.auto.inputbytes.max=128M 处理文件的总大小 4 128条件下推荐本地模式
+
+6.join的优化
+hive的join策略是进行reduce side join,增大reduce的负载
+
+小表join大表 选择map join
+手动map join 在写sql语句的时候指定小表
+select 
+自动 map join
+hive.auto.convert.join = true 自动判定是否执行map join
+hive.mapjoin.smalltable.filesize=25M
+
+bucket map join 小的分桶表和大分桶表 join
+小表依然复制到所有节点，map join的时候，小表的每一组bucket加载成hashtable，与对应的一个大表bucket做局部join，这样每次只需要加载部分hashtable就可以了。
+
+7.数据倾斜的优化
+所谓数据倾斜，说的是由于数据分布不均匀，个别值集中占据大部分数据量，加上hadoop的计算模式，导致计算资源不均匀引起性能下降。
+1.数据本身就分布不均匀
+	hive.map.aggr=true map端的聚合，combiner
+	group by 分组字段下的数据量相差巨大，不同reducede处理的数据量就不相同，所以数据量大的reduce会速度很慢，影响整个job的速度
+	解决方法:
+	1.hive.groupby.skewindata=false。
+	这个参数的意思是做reduce操作的时候，拿到的key并不是所有相同值给同一个reduce，而是随机分发，然后reduce做聚合，做完之后再做一轮MR
+	2.hive.optimize.skewjoin=false hive.skewjoin.key=100000
+	倾斜数据先不进行计算，先存入hdfs,最后再执行一轮map join
+
+8.多job的优化
+
+1.job的并行
+hive.exec.parallel=false
+hive.exec.parallel.thread.number=8
+
+
+
+
+
+
+
+
+
+
+
+

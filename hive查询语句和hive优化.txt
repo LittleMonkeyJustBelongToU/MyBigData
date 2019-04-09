@@ -1,0 +1,345 @@
+=======================================================================================================================================================
+									select查询
+=======================================================================================================================================================
+
+
+=======================================================================================================================================================
+									join
+=======================================================================================================================================================
+
+多表join，按照相同字段取值，小表和大表，大表和大表
+底层使用mapreduce执行
+
+1.customers客户表
+create table customers(
+id bigint,
+name string,
+address string,
+phone double)
+row format delimited fields terminated by '\t';
+
+数据
+1	1	50
+2	1	200
+3	3	15
+4	3	350
+5	3	58
+6	1	42
+7	1	352
+8	2	1135
+9	2	400
+10	2	2000
+
+
+2.orders订单表
+create table orders(
+oid bigint,
+cid bigint,
+orther bigint)
+row format delimited fields terminated by '\t';
+
+
+数据
+1	wd	shanghai	110
+2	zam	beijin	112
+3	dong	tianjing	119
+
+
+子查询
+select * from orders o where o.cid in(select id from customers);
+左连接  右连接 全连接
+select * from orders o join customers c on (o.cid=c.id);
+select * from orders o left join customers c on (o.cid=c.id);
+select * from orders o left outer join customers c on (o.cid=c.id);
+select * from orders o right outer join customers c on (o.cid=c.id);
+select * from orders o join customers c on (o.cid=c.id and c.name='zam');
+select * from orders o left join customers c on (o.cid=c.id and c.name='zam');
+select * from orders o right join customers c on (o.cid=c.id and c.name='zam');
+
+
+如果关联的表中有一张很小的表，那么可以使用mapjoin来优化，注意mapjoin仅仅开启map任务，不需要reducer任务，但是对于full/right outer join是不支持的。
+
+
+多表join，三个表的join指定一个表为流表，则其他两个表数据加载到内存，和流表执行mapreduce
+/*+ STREAMTABLE(a) */
+
+
+指定mapjoin的小表，小表加载到内存，只会执行map，没有reduce
+
+
+/*+ mapjoin(a) */
+set hive.optimize.bucketmapjoin=true;
+
+
+底层为tez
+
+
+两个表join
+select my_message1.* from my_message1 join my_message2 on my_message1.id=my_message2.id;
+
+三个表joib
+select my_message1.love,my_message2.love,my_message3.love from my_message1 join my_message2 on (my_message1.id=my_message2.id) join my_message3 on (my_message3.id=my_message2.id);
+
+
+group by
+查询每个客户的消费s总额
+select c.name,sum(o.orther) from customers c join orders o on(c.id=o.cid) group by(c.name);
+统计每个客户下单数量
+select c.name,count(*) from customers c join orders o on(c.id=o.cid) group by(c.name);
+统计每个客户下单数量并插入表
+insert into table c_sum_orders select c.name,count(*) from customers c join orders o on(c.id=o.cid) group by(c.name);
+
+=======================================================================================================================================================
+									order by
+=======================================================================================================================================================
+
+
+
+=======================================================================================================================================================
+									group by
+=======================================================================================================================================================
+
+group by的前提条件，必须为查询分组的列，指定分组的列，其他列的一个聚合函数的统计,执行tez
+
+hive.groupby.orderby.position.alias
+
+grouping数据
+1	NULL
+1	1
+2	2
+3	3
+3	NULL
+4	5
+
+group by表参数
+
+user_id	                bigint                  None            
+device_id               int                     None   手机，平板 
+os_id                   int                     None   操作系统类型        
+app_id                  int                     None   手机app_id        
+client_version          string                  None   客户端版本       
+from_id                 int                     None   四级渠道
+
+group by数据
+1	11	111	1111	安卓	11111
+2		222	2222	苹果	22222
+3			3333	mac	33333
+4					44444
+5					
+
+
+
+
+=======================================================================================================================================================
+									子查询
+=======================================================================================================================================================
+
+
+=======================================================================================================================================================
+									抽样语句
+=======================================================================================================================================================
+
+
+
+
+
+
+=======================================================================================================================================================
+									lateral_view(侧视图)
+=======================================================================================================================================================
+
+侧视图就是讲UDTF的explode 行转列的值转为侧视图列，进入表中与表中的列进行 笛卡尔积
+一对多，则使用 1 则其和其对应结果的笛卡尔积
+多对多，多和多对应的结果的笛卡尔积
+
+使用限制条件
+①在select语句中只支持单个UDTF表达式
+②不支持UDTF嵌套
+③不支持GROUP BY / CLUSTER BY / DISTRIBUTE BY / SORT BY语句
+
+建表
+create table lateral_view(
+name string,
+interest array<string>,
+country array<string>)
+row format delimited fields terminated by '\t'
+collection items terminated by ',';
+
+数据
+wd      吃,喝,睡        北京,上海
+dong    吃,睡   天津,大连
+zam             四川,南京
+man     吃,玩
+
+
+查询语法格式
+select 列名，latera view别名 from 表名
+lateral view explode(列名) 别名 as latera view别名;
+
+一对多
+select name,col from lateral_view 
+lateral view explode(country) country as col;
+
+多对多
+select col1,col2 from lateral_view 
+lateral view explode(interest) interest as col1
+lateral view explode(country) country as col2;
+
+保留空的多对多
+select col1,col2 from lateral_view 
+lateral view outer explode(interest) interest as col1
+lateral view outer explode(country) country as col2;
+
+一和多对多
+select name,col1,col2 from lateral_view 
+lateral view explode(interest) interest as col1
+lateral view explode(country) country as col2;
+
+保留空的一和多对多
+select name,col1,col2 from lateral_view 
+lateral view outer explode(interest) interest as col1
+lateral view outer explode(country) country as col2;
+
+
+
+=======================================================================================================================================================
+									hive优化(数据仓库中sql的优化)
+=======================================================================================================================================================
+一个Hive查询生成多个map reduce job，一个map reduce job又有map，reduce，spill，shuffle，sort等多个阶段，
+hive查询的优化可以大致分为
+针对M/R中单个步骤的优化
+针对M/R全局的优化
+针对整个查询（多M/R job）的优化
+
+1.	map阶段的优化
+文件切片大小和block块大小
+num_map_tasks = max[${mapred.min.split.size},min(${dfs.block.size}, ${mapred.max.split.size})]
+首先从dfs块大小和max切片大小比较取小，再和最小切片大小比较取大
+默认max=256M,block=128M,min=1b
+set dfs.block.size;查看dfs块大小
+
+mapred.map.tasks   查看 map数量,修改无效
+
+
+2.	reduce阶段的优化
+reduce数量默认方式
+num_reduce_tasks = min(${hive.exec.reducers.max},
+${input.size} / ${ hive.exec.reducers.bytes.per.reducer})
+
+输入reduce的数据量，
+每个gereduce的数据量单位
+reduce数量的上限
+
+mapred.reduce.tasks;查看，设置 reduce数量
+
+3.	shuffle阶段优化
+分区排序合并---文件---分发到reduce
+buffer大小 
+io.sort.mb
+
+合并因子
+io.sort.factor
+
+reduce启动时间的参数
+mapred.reduce.slowstart.completed.maps
+
+copy阶段
+map端的提供数据服务的线程数
+tasktracker.http.threads
+reduce端复制数据的线程数量
+mapred.reduce.parallel.copies
+
+map服务能处理reduce的复制请求，数量map>reduce
+
+
+4.	文件格式的优化,和数据的压缩
+
+	文件格式
+		textfile
+		sequencefile
+		rcfile(压缩比例，查询时间较好)
+		orcfile
+
+		建表时 stored as rcfile;
+
+		在会话窗口执行某个sql之前
+
+		文件格式（建表并插入时)
+		set hive.default.fileformat = SequenceFile;
+
+	1.文件压缩
+		开启hive压缩,默认为false
+		set hive.exec.compress.output = true;
+		设置压缩类型 默认为snappy
+		set mapred.output.compression.type = org.apache.hadoop.compress.GzipCodec
+										Bzip2Codec
+										snappyCodec
+							com.apache.hadoop.compress.lzo.lzoCodec	
+	2.开启map output的压缩
+		set mapreduce.map.output.compress=true
+		压缩方式
+		set mapreduce.map.out.cpmpress.codec=codecName
+
+
+	3.开启reduce output的压缩
+		set mapreduce.output.fileoutputformat.compress=true;
+		设置reduce的压缩方式
+		set mapreduce.output.fileoutputformat.compress.codec=codecName;
+
+
+5.	job整体优化
+执行模式job
+本地执行的优化,在文件数量小（小于4)并且数据量小时(小于128m),建议开启本地执行
+hive.exec.mode.local.auto=true；
+
+6.	join算法
+默认为reduce side join
+mapjoin,将join提前到map端join减少网络io,加快速度
+设置自动mapjoin
+hive.auto.convert.join = true
+自动mapjoin的条件为文件大小小于25M
+hive.mapjoin.smalltable.filesize
+
+小表和大表的join,小表直接加载到内存
+replication join：把其中一个表复制到所有节点,并加载到其内存,另外一个表在其他节点的分片和他join即可
+执行sql时指定某个表为小表 /*+mapjoib(a)*/
+
+较大的表a和大表b,a不足以放入内存
+bucket map join
+a的bucket数量为bucket数量的倍数
+
+两个表的join key都具有唯一性的时候
+bucket map join sort merge
+
+大表join 在reduce阶段join
+hive.auto.convert.join = true
+
+
+7.数据倾斜的优化
+原因：数据本身就不均匀，个别特殊值占据大量数据
+      计算模式导致数据倾斜
+	  
+group by造成的倾斜，由两个参数决定
+可设置map端的combiner
+hive.map.aggr
+hive.groupby.skewindata
+讲倾斜数据均匀分开，在reduce端处理，结果在启动一次job处理进行combiner
+
+
+join 造成的倾斜
+
+join时特殊值造成了数据倾斜,数量大于100000为特殊值
+set hive.optimize.skewjoin = true;
+hive.skewjoin.key
+
+设置开启join处理数据倾斜的参数为true,hive可识别那些数据为特殊数据，也就是倾斜数据，
+倾斜数据将不参与本轮mr,会再次执行一次mr去处理倾斜的数据
+
+多job优化,出现在多个子查询union或join时，此时多job可并行，
+开启多job并行，设置并行的参数,默认为8
+hive.exec.parallel
+hive.exec.parallel.thread.number
+
+
+
+
